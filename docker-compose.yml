@@ -1,0 +1,58 @@
+# RevBounce — full stack.
+# The `web` service is self-sufficient (in-memory store, no DB required).
+# postgres/redis are included so the same compose file works unchanged when
+# you swap the in-memory registry for Prisma + Redis.
+services:
+  web:
+    build: .
+    container_name: revbounce-web
+    ports: ["3000:3000"]
+    environment:
+      NODE_ENV: production
+      REVBOUNCE_SECRET: ${REVBOUNCE_SECRET:-dev-only-secret-rotate-in-prod}
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/revbounce
+      REDIS_URL: redis://redis:6379
+    depends_on: [postgres, redis]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  worker:
+    build: .
+    container_name: revbounce-worker
+    command: ["node", "-e", "console.log('RevBounce worker — email delivery, FTP batches, billing and hourly optimization run in-process in dummy mode; this container is the seam for BullMQ.'); setInterval(()=>{},1<<30)"]
+    environment:
+      REDIS_URL: redis://redis:6379
+    depends_on: [redis]
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: revbounce-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: revbounce
+    ports: ["5432:5432"]
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: revbounce-redis
+    ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  pgdata:
